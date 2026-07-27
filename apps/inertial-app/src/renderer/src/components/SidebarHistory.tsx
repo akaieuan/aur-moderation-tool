@@ -1,79 +1,53 @@
-import { Activity, Bot, NotebookPen } from "lucide-react";
+import { Activity } from "lucide-react";
 import { useHistory, type HistoryEntry } from "../lib/history.js";
 import type { RightPanelKind } from "./RightPanel.js";
 import { RelativeTime } from "./RelativeTime.js";
 import { cn } from "../lib/utils.js";
 
-const ICON_FOR: Record<RightPanelKind, typeof Activity> = {
-  "agent-activity": Activity,
-  notes: NotebookPen,
-  chat: Bot,
-};
-
-const SECTIONS: ReadonlyArray<{
-  kind: RightPanelKind;
-  label: string;
-  empty: string;
-  limit: number;
-}> = [
-  { kind: "chat", label: "Chats", empty: "No chats yet", limit: 4 },
-  { kind: "agent-activity", label: "Agent runs", empty: "No runs yet", limit: 4 },
-  { kind: "notes", label: "Notes", empty: "No notes yet", limit: 4 },
-];
+const LIMIT = 6;
 
 interface SidebarHistoryProps {
   onOpenPanel: (kind: RightPanelKind) => void;
   collapsed?: boolean;
 }
 
+/**
+ * Recent dispatch runs. Was three grouped sections (Chats / Agent runs /
+ * Notes); the other two went with their panels, so the grouping went too —
+ * a section header over the only section is noise.
+ */
 export function SidebarHistory({ onOpenPanel, collapsed = false }: SidebarHistoryProps) {
   const { entries } = useHistory();
 
   if (collapsed) return null;
 
-  const grouped: Record<RightPanelKind, HistoryEntry[]> = {
-    chat: [],
-    "agent-activity": [],
-    notes: [],
-  };
-  for (const e of entries) grouped[e.kind].push(e);
-
-  const hasAny = entries.length > 0;
-  if (!hasAny) return null;
+  const items = entries
+    .filter((e) => e.kind === "agent-activity")
+    .slice(0, LIMIT);
+  if (items.length === 0) return null;
 
   return (
     <div className="mt-4 px-1.5">
-      {SECTIONS.map(({ kind, label, empty, limit }) => {
-        const items = grouped[kind].slice(0, limit);
-        return (
-          <section key={kind} className="mt-3 first:mt-0">
-            <div className="flex items-center justify-between px-2 pb-1">
-              <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                {label}
-              </span>
-              {items.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => onOpenPanel(kind)}
-                  className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
-                  title={`Open ${label.toLowerCase()} panel`}
-                >
-                  {items.length}
-                </button>
-              )}
-            </div>
-            {items.length === 0 ? (
-              <div className="px-2 pb-1 text-[11px] text-muted-foreground/60">{empty}</div>
-            ) : (
-              <ul className="flex flex-col gap-px">
-                {items.map((entry) => (
-                  <HistoryRow key={entry.id} entry={entry} onOpen={onOpenPanel} />
-                ))}
-              </ul>
-            )}
-          </section>
-        );
-      })}
+      <section>
+        <div className="flex items-center justify-between px-2 pb-1">
+          <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            Agent runs
+          </span>
+          <button
+            type="button"
+            onClick={() => onOpenPanel("agent-activity")}
+            className="text-[10px] text-muted-foreground/60 transition-colors hover:text-foreground"
+            title="Open agent activity panel"
+          >
+            {items.length}
+          </button>
+        </div>
+        <ul className="flex flex-col gap-px">
+          {items.map((entry) => (
+            <HistoryRow key={entry.id} entry={entry} onOpen={onOpenPanel} />
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
@@ -85,7 +59,6 @@ function HistoryRow({
   entry: HistoryEntry;
   onOpen: (kind: RightPanelKind) => void;
 }) {
-  const Icon = ICON_FOR[entry.kind];
   return (
     <li>
       <button
@@ -98,7 +71,7 @@ function HistoryRow({
           "text-muted-foreground hover:bg-muted hover:text-foreground",
         )}
       >
-        <Icon className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+        <Activity className="h-3 w-3 shrink-0" strokeWidth={1.5} />
         <span className="flex-1 truncate">{entry.label}</span>
         <RelativeTime
           iso={entry.at}

@@ -8,10 +8,16 @@ export function severityFor(maxProbability: number): Severity {
   return "low";
 }
 
+/**
+ * Severity colour resolves through akaSTYLE accent tokens, not raw palette
+ * utilities. The tokens already carry their own light/dark values, so these
+ * maps no longer need a `dark:` twin for every entry — and a palette change
+ * happens in index.css rather than across every file that shows a severity.
+ */
 const STRIPE: Record<Severity, string> = {
-  low: "bg-emerald-500",
-  medium: "bg-amber-500",
-  high: "bg-rose-500",
+  low: "bg-accent-green",
+  medium: "bg-accent-amber",
+  high: "bg-accent-rose",
 };
 
 export function SeverityIndicator({
@@ -25,25 +31,25 @@ export function SeverityIndicator({
 }
 
 export const SEVERITY_TEXT: Record<Severity, string> = {
-  low: "text-emerald-700 dark:text-emerald-300",
-  medium: "text-amber-700 dark:text-amber-300",
-  high: "text-rose-700 dark:text-rose-300",
+  low: "text-accent-green",
+  medium: "text-accent-amber",
+  high: "text-accent-rose",
 };
 
 export const SEVERITY_BG_SOFT: Record<Severity, string> = {
-  low: "bg-emerald-500/10 dark:bg-emerald-500/15",
-  medium: "bg-amber-500/10 dark:bg-amber-500/15",
-  high: "bg-rose-500/10 dark:bg-rose-500/15",
+  low: "bg-accent-green/10",
+  medium: "bg-accent-amber/10",
+  high: "bg-accent-rose/10",
 };
 
 export const SEVERITY_BORDER_SOFT: Record<Severity, string> = {
-  low: "border-emerald-500/30 dark:border-emerald-500/40",
-  medium: "border-amber-500/30 dark:border-amber-500/40",
-  high: "border-rose-500/30 dark:border-rose-500/40",
+  low: "border-accent-green/30",
+  medium: "border-accent-amber/30",
+  high: "border-accent-rose/30",
 };
 
 export const SEVERITY_BAR: Record<Severity, string> = {
-  low: "bg-emerald-500/80",
-  medium: "bg-amber-500/85",
-  high: "bg-rose-500/90",
+  low: "bg-accent-green/80",
+  medium: "bg-accent-amber/85",
+  high: "bg-accent-rose/90",
 };

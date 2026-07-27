@@ -24,7 +24,10 @@ export function AppShell({ active, onChange, pendingCount, children }: AppShellP
   const [rightPanel, setRightPanel] = useState<RightPanelKind | null>(() => {
     if (typeof window === "undefined") return null;
     const raw = window.localStorage.getItem(RIGHT_PANEL_KEY);
-    if (raw === "agent-activity" || raw === "notes" || raw === "chat") return raw;
+    // "notes" and "chat" are deliberately not accepted — a reviewer who had
+    // one of them open before they were removed lands on the trace, not on a
+    // blank rail.
+    if (raw === "agent-activity") return raw;
     return null;
   });
 

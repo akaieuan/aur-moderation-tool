@@ -10,6 +10,7 @@ import type {
 } from "@inertial/schemas";
 import { MiniTrace, type TraceStep } from "../components/hitl/MiniTrace.js";
 import { ChannelChip } from "../components/ChannelChip.js";
+import { SilentChannels } from "../components/SilentChannels.js";
 import { ImageEvidence, type BboxOverlay } from "../components/ImageEvidence.js";
 import { AuthorBadge } from "../components/AuthorBadge.js";
 import { RelativeTime } from "../components/RelativeTime.js";
@@ -287,7 +288,8 @@ function DetailBody({
           <SectionLabel>Channels</SectionLabel>
           {Object.values(signal.channels).length === 0 ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              no channels emitted
+              Nothing reported on this event. That is a coverage gap, not a
+              clean result.
             </p>
           ) : (
             <div className="mt-2 flex flex-col gap-2">
@@ -298,6 +300,7 @@ function DetailBody({
                 ))}
             </div>
           )}
+          <SilentChannels emitted={Object.keys(signal.channels)} />
         </div>
       )}
 

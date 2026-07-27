@@ -1,6 +1,8 @@
 import { useState } from "react";
 import type { SignalChannel } from "@inertial/schemas";
 import { cn } from "../lib/utils.js";
+import { channelLabel, readingFor } from "../lib/channel-readings.js";
+import { SEVERITY_BAR } from "./SeverityIndicator.js";
 
 interface ChannelChipProps {
   channel: SignalChannel;
@@ -15,23 +17,37 @@ interface ChannelChipProps {
 export function ChannelChip({ channel }: ChannelChipProps) {
   const [expanded, setExpanded] = useState(false);
   const severity = channelSeverity(channel.probability);
+  const reading = readingFor(channel.channel, channel.probability);
 
   return (
     <div
       className={cn(
-        "rounded-md border px-3 py-2 text-xs transition-colors",
-        SEVERITY_BG[severity],
-        SEVERITY_BORDER[severity],
+        // akaSTYLE: the surface stays neutral and the accent is punctuation —
+        // a left stripe and the probability bar. Tinting the whole card made
+        // every channel shout, which flattens the difference between a 0.98
+        // and a 0.51.
+        "relative overflow-hidden rounded-md border border-border bg-card px-3 py-2 pl-4 text-xs transition-colors",
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "absolute inset-y-0 left-0 w-[3px]",
+          SEVERITY_BAR[severity],
+        )}
+      />
       <button
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-center gap-3 text-left"
       >
-        <span className="font-mono text-[color:var(--foreground)]">
-          {channel.channel}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[color:var(--foreground)]">
+            {channelLabel(channel.channel)}
+          </span>
+          <span className="block truncate font-mono text-[10px] text-[color:var(--muted-foreground)]/70">
+            {channel.channel}
+          </span>
         </span>
-        <span className="flex-1" />
         <span
           className="inline-block h-2 w-24 overflow-hidden rounded-full bg-[color:var(--border)]"
           aria-label={`probability ${channel.probability.toFixed(2)}`}
@@ -53,6 +69,11 @@ export function ChannelChip({ channel }: ChannelChipProps) {
           {expanded ? "−" : "+"}
         </span>
       </button>
+      {reading && (
+        <p className="mt-1.5 text-[11px] leading-snug text-[color:var(--muted-foreground)]">
+          {reading}
+        </p>
+      )}
       {expanded && (
         <div className="mt-2 space-y-1 border-t border-[color:var(--border)] pt-2 text-[color:var(--muted-foreground)]">
           <div>
@@ -84,24 +105,6 @@ function channelSeverity(p: number): Severity {
   if (p < 0.8) return "medium";
   return "high";
 }
-
-const SEVERITY_BG: Record<Severity, string> = {
-  low: "bg-emerald-500/5 dark:bg-emerald-500/10",
-  medium: "bg-amber-500/10 dark:bg-amber-500/15",
-  high: "bg-rose-500/10 dark:bg-rose-500/15",
-};
-
-const SEVERITY_BORDER: Record<Severity, string> = {
-  low: "border-emerald-500/30 dark:border-emerald-500/40",
-  medium: "border-amber-500/30 dark:border-amber-500/40",
-  high: "border-rose-500/40 dark:border-rose-500/50",
-};
-
-const SEVERITY_BAR: Record<Severity, string> = {
-  low: "bg-emerald-500/80",
-  medium: "bg-amber-500/85",
-  high: "bg-rose-500/90",
-};
 
 function summarizeEvidence(ev: SignalChannel["evidence"][number]): string {
   switch (ev.kind) {
