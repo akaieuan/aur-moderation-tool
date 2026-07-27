@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "@eval-kit/ui/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 

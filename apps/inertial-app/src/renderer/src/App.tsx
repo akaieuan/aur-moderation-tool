@@ -29,11 +29,12 @@ export function App() {
       }
     };
     void tick();
-    if (demo) return;
-    const handle = setInterval(tick, 6_000);
+    // Demo mode serves from a fixed fixture set, so polling would be busywork —
+    // but the effect still has to disarm the in-flight tick on unmount.
+    const handle = demo ? undefined : setInterval(tick, 6_000);
     return () => {
       mounted = false;
-      clearInterval(handle);
+      if (handle !== undefined) clearInterval(handle);
     };
   }, [demo]);
 

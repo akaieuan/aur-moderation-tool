@@ -27,10 +27,6 @@ export default defineConfig({
     resolve: {
       alias: {
         "@renderer": resolve(__dirname, "src/renderer/src"),
-        // @eval-kit/core's runner.ts imports Node's `crypto`. Stub it with a
-        // Web Crypto wrapper so the bundle loads in the renderer without
-        // enabling nodeIntegration.
-        crypto: resolve(__dirname, "src/renderer/src/lib/crypto-shim.ts"),
       },
     },
     plugins: [react(), tailwindcss()],
