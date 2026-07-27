@@ -878,6 +878,7 @@ export function getDemoSkillRegistrations(): SkillRegistration[] {
       instanceId: "default",
       catalogId: "voyage-text-embedding",
       displayName: "Voyage embeddings",
+      version: "1.0.0",
       providerConfig: { apiKey: "pa-demo-***-redacted" },
       enabled: true,
       createdAt: new Date(NOW - 86_400_000 * 2).toISOString(),
@@ -889,7 +890,25 @@ export function getDemoSkillRegistrations(): SkillRegistration[] {
 // --- Eval harness demo data ----------------------------------------------
 
 /** Hand-built calibration rows that look plausible after a real eval run. */
+/** Semver per demo skill, so the Insights table can show version attribution. */
+const DEMO_SKILL_VERSIONS: Record<string, string> = {
+  "text-classify-toxicity@local": "1.2.0",
+  "text-detect-spam-link": "0.4.1",
+  "text-context-author@local": "0.3.0",
+  "image-classify@anthropic": "1.0.0",
+};
+
 function makeDemoCalibrations() {
+  // skillVersion and skippedIncomplete are shared shape, so they're mapped in
+  // rather than repeated on every row.
+  return rawDemoCalibrations().map((c) => ({
+    ...c,
+    skillVersion: DEMO_SKILL_VERSIONS[c.skillName] ?? null,
+    skippedIncomplete: 0,
+  }));
+}
+
+function rawDemoCalibrations() {
   return [
     {
       skillName: "text-classify-toxicity@local",

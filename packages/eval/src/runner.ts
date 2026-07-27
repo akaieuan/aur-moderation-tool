@@ -38,6 +38,13 @@ export interface RunEvalInput {
   goldSetVersion: string;
   instanceId: string;
   triggeredBy?: string | null;
+  /**
+   * Skill name → semver, so each calibration row records which build produced
+   * it. Optional because the runner has no registry of its own; callers that
+   * do (the runciter) should supply it. Omitting it yields null versions
+   * rather than fabricated ones.
+   */
+  skillVersions?: Readonly<Record<string, string>>;
   /** Notification callback fired after each event. Lets the dashboard show
    *  "12/50 done…" progress. */
   onProgress?: (done: number, total: number) => void;
@@ -108,7 +115,10 @@ export async function runEval(input: RunEvalInput): Promise<RunEvalResult> {
   }
 
   const endedAt = new Date().toISOString();
-  const calibrations = aggregateRunCalibrations(predictions);
+  const calibrations = aggregateRunCalibrations(
+    predictions,
+    input.skillVersions ?? {},
+  );
   const meanLatencyMs =
     predictions.length === 0
       ? 0

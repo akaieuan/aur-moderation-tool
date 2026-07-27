@@ -280,6 +280,7 @@ export async function addSkillRegistration(
     // Demo: synthesize a registration for optimistic UI.
     return {
       id: crypto.randomUUID(),
+      version: "0.0.0",
       ...input,
       createdAt: new Date().toISOString(),
     };
@@ -308,6 +309,7 @@ export async function toggleSkillRegistration(
       instanceId: "default",
       catalogId: "demo",
       displayName: "demo",
+      version: "0.0.0",
       providerConfig: {},
       enabled,
       createdAt: new Date().toISOString(),

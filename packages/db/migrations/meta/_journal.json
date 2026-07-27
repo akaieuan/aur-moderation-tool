@@ -43,6 +43,13 @@
       "when": 1785170486106,
       "tag": "0005_concerned_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785171019157,
+      "tag": "0006_fair_stark_industries",
+      "breakpoints": true
     }
   ]
 }

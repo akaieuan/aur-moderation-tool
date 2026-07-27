@@ -443,11 +443,20 @@ app.post("/v1/skills/registrations", async (c) => {
     }
   }
 
+  // The catalog carries no version — the implementation does. Read it off the
+  // registry when the skill is already wired, and record 0.0.0 otherwise
+  // rather than inventing something that looks specific.
+  const wiredName = skillNameForCatalogId(input.catalogId);
+  const wiredVersion = wiredName
+    ? skills.list().find((s) => s.name === wiredName)?.version
+    : undefined;
+
   const reg: SkillRegistration = {
     id: randomUUID(),
     instanceId: input.instanceId,
     catalogId: input.catalogId,
     displayName: input.displayName || entry.displayName,
+    version: wiredVersion ?? "0.0.0",
     providerConfig: input.providerConfig,
     enabled: input.enabled,
     createdAt: new Date().toISOString(),
@@ -1180,6 +1189,11 @@ async function runAndPersistEval(
       goldSetVersion,
       instanceId,
       triggeredBy: "dashboard",
+      // Attribute each calibration row to the build that produced it, so a
+      // model swap starts a new history instead of averaging into the old one.
+      skillVersions: Object.fromEntries(
+        skills.list().map((s) => [s.name, s.version]),
+      ),
       // Resolve content events from the DB — the boot loader populated them.
       getContentEvent: async (gold) => events.getContentEvent(db, gold.contentEventId),
       // Use the actual production runciter — same skill registry, same dispatch.

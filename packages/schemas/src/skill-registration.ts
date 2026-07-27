@@ -23,6 +23,12 @@ export const SkillRegistrationSchema = z.object({
   catalogId: z.string(),
   /** Operator-set label. Defaults to the catalog entry's displayName at create time. */
   displayName: z.string(),
+  /**
+   * Semver of the registered skill, captured at registration time and carried
+   * onto every SkillCalibration row the skill produces. Without it a model
+   * swap merges two calibration histories into one meaningless average.
+   */
+  version: z.string().default("0.0.0"),
   /** Catalog-entry-specific shape — typically `{ apiKey: string }`. Validated by the
    * runciter against the catalog entry's `configFields` before persistence. */
   providerConfig: z.record(z.string(), z.unknown()),

@@ -55,6 +55,16 @@ export type GoldEvent = z.infer<typeof GoldEventSchema>;
 
 export const SkillCalibrationSchema = z.object({
   skillName: z.string(),
+  /**
+   * Semver of the skill that produced these numbers, or null when the run
+   * didn't record it.
+   *
+   * Without this, swapping toxic-bert for a successor silently merges two
+   * models into one calibration history, and the number stops describing
+   * anything. Null rather than a placeholder — an unknown version is a fact
+   * worth seeing, not a gap to paper over.
+   */
+  skillVersion: z.string().nullable().default(null),
   channelName: z.string(),
   /** Mean (predicted - actual)^2. Lower = better. Range [0, 1]. */
   brierScore: z.number().min(0).max(1),
@@ -67,6 +77,15 @@ export const SkillCalibrationSchema = z.object({
   /** Number of (gold event, channel) pairs that contributed. Statistical
    *  trustworthiness scales with this — display warnings when n < 10. */
   samples: z.number().int().nonnegative(),
+  /**
+   * Events excluded because an agent failed on them, making this skill's
+   * silence ambiguous — "ran and found nothing" and "never ran" are the same
+   * absence, and only the first may be scored as 0.
+   *
+   * Reported rather than silently dropped: a shrinking sample count with no
+   * explanation is how a calibration record quietly stops being comparable.
+   */
+  skippedIncomplete: z.number().int().nonnegative().default(0),
   meanPredicted: z.number().min(0).max(1),
   meanActual: z.number().min(0).max(1),
 });

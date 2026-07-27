@@ -404,6 +404,8 @@ export const skillRegistrations = pgTable(
      *  new catalog entry doesn't require a DB migration. */
     catalogId: text("catalog_id").notNull(),
     displayName: text("display_name").notNull(),
+    /** Semver captured at registration time, carried onto calibration rows. */
+    version: text("version").notNull().default("0.0.0"),
     providerConfig: jsonb("provider_config")
       .$type<Record<string, unknown>>()
       .notNull()
@@ -591,7 +593,13 @@ export const skillCalibrations = pgTable(
       .notNull()
       .references(() => evalRuns.id, { onDelete: "cascade" }),
     skillName: text("skill_name").notNull(),
+    /** Semver of the build that produced these numbers. Null when the run
+     *  didn't record it — a model swap otherwise merges two histories. */
+    skillVersion: text("skill_version"),
     channelName: text("channel_name").notNull(),
+    /** Events dropped because an agent failed, making this skill's silence
+     *  ambiguous. Reported so a shrinking sample count has an explanation. */
+    skippedIncomplete: integer("skipped_incomplete").notNull().default(0),
     /** All scoring fields are numeric for precision; cast to number on read. */
     brierScore: numeric("brier_score", { precision: 6, scale: 4 }).notNull(),
     ece: numeric("ece", { precision: 6, scale: 4 }).notNull(),
