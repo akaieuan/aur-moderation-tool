@@ -9,10 +9,41 @@ import type {
 
 import type { SkillMeta, SkillRegistry } from "@inertial/core";
 
+/**
+ * The part of a condition tree that actually fired, with the values observed
+ * at match time.
+ *
+ * Recording the rule id alone makes an audit entry a pointer: the reader has
+ * to go find the policy version that was live and re-read it. The witness
+ * makes the entry self-contained — "toxic was 0.83, the rule wanted > 0.7".
+ *
+ * For `any:` only the branch that matched is kept; recording the others would
+ * claim evidence the evaluator never relied on. For `all:` every branch is
+ * kept, because every one had to hold.
+ */
+export type MatchWitness =
+  | {
+      kind: "channel";
+      channel: string;
+      field: "probability" | "confidence";
+      op: "gt" | "lt" | "gte" | "lte" | "eq";
+      threshold: number;
+      observed: number;
+    }
+  | { kind: "entity"; entity: string; expected: boolean; observed: boolean }
+  | { kind: "all"; of: MatchWitness[] }
+  | { kind: "any"; matched: MatchWitness };
+
 export interface EvaluationResult {
   action: PolicyAction;
   /** Rule id that fired, or undefined if the default action was used. */
   matchedRuleId?: string;
+  /**
+   * Why the rule fired. Undefined when the default action was used — there
+   * was no condition, which is itself worth being able to tell apart from
+   * "a rule fired but we didn't record why".
+   */
+  witness?: MatchWitness;
 }
 
 /**
@@ -27,8 +58,9 @@ export function evaluatePolicy(
   signal: StructuredSignal,
 ): EvaluationResult {
   for (const rule of policy.rules) {
-    if (matches(rule.if, signal)) {
-      return { action: rule.action, matchedRuleId: rule.id };
+    const w = witness(rule.if, signal);
+    if (w) {
+      return { action: rule.action, matchedRuleId: rule.id, witness: w };
     }
   }
   return { action: policy.default };
@@ -77,27 +109,59 @@ export function isSkillAllowed(meta: SkillMeta, policy: SkillsBlock): boolean {
   return true;
 }
 
-function matches(cond: Condition, signal: StructuredSignal): boolean {
+/**
+ * Evaluate a condition, returning *why* it matched rather than just whether.
+ * Null means no match. The boolean `matches()` below is this with the
+ * explanation thrown away, kept for callers that only need the predicate.
+ */
+function witness(cond: Condition, signal: StructuredSignal): MatchWitness | null {
   if ("all" in cond) {
-    return cond.all.every((c) => matches(c, signal));
+    const of: MatchWitness[] = [];
+    for (const c of cond.all) {
+      const w = witness(c, signal);
+      if (!w) return null;
+      of.push(w);
+    }
+    return { kind: "all", of };
   }
   if ("any" in cond) {
-    return cond.any.some((c) => matches(c, signal));
+    for (const c of cond.any) {
+      const w = witness(c, signal);
+      if (w) return { kind: "any", matched: w };
+    }
+    return null;
   }
   if ("channel" in cond) {
     const channel = signal.channels[cond.channel];
-    if (!channel) return false;
-    const fieldValue = (cond.field ?? "probability") === "probability"
-      ? channel.probability
-      : channel.confidence;
-    return compare(fieldValue, cond.op, cond.value);
+    // A channel the signal never carried is not a match. This is the "absence
+    // is meaningful" rule: a skill that didn't run omits its channel, and an
+    // omitted channel must not be read as a low score.
+    if (!channel) return null;
+    const field = cond.field ?? "probability";
+    const observed =
+      field === "probability" ? channel.probability : channel.confidence;
+    if (!compare(observed, cond.op, cond.value)) return null;
+    return {
+      kind: "channel",
+      channel: cond.channel,
+      field,
+      op: cond.op,
+      threshold: cond.value,
+      observed,
+    };
   }
-  // entity leaf
   if ("entity" in cond) {
-    const present = signal.entities.some((e) => e.type === cond.entity);
-    return cond.present === false ? !present : present;
+    const observed = signal.entities.some((e) => e.type === cond.entity);
+    const expected = cond.present !== false;
+    return observed === expected
+      ? { kind: "entity", entity: cond.entity, expected, observed }
+      : null;
   }
-  return false;
+  return null;
+}
+
+function matches(cond: Condition, signal: StructuredSignal): boolean {
+  return witness(cond, signal) !== null;
 }
 
 function compare(

@@ -18,4 +18,5 @@ export {
   policyDocToRow,
   selectEscalations,
   type EvaluationResult,
+  type MatchWitness,
 } from "./evaluator.js";

@@ -46,6 +46,7 @@ import {
   ContentEventSchema,
   ReviewDecisionSchema,
   SkillRegistrationSchema,
+  gateClassOf,
   type AgentTrace,
   type ContentEvent,
   type GoldEvent,
@@ -817,9 +818,25 @@ function queueForAction(action: PolicyAction): QueueKind | null {
 }
 
 async function processEvent(event: ContentEvent): Promise<ProcessResult> {
+  // Position within this event's action sequence.
+  //
+  // Compliance is entirely a question of ordering: a chain that records *that*
+  // an approval happened but not *where* it happened cannot be re-scored
+  // later. Counted rather than hardcoded because escalation and shadow runs
+  // append a variable number of entries before the gate is reached — assuming
+  // a fixed offset would silently drift the moment a policy adds an escalation.
+  let actionsTaken = 0;
+  const appendAudit = async (
+    entry: Parameters<typeof audit.appendAuditEntry>[1],
+  ) => {
+    const result = await audit.appendAuditEntry(db, entry);
+    actionsTaken += 1;
+    return result;
+  };
+
   // 1. Persist + audit ingestion.
   await events.saveContentEvent(db, event);
-  await audit.appendAuditEntry(db, {
+  await appendAudit({
     instanceId: event.instance.id,
     kind: "event-ingested",
     ref: { type: "content-event", id: event.id },
@@ -871,7 +888,7 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
       signal = mergeChannels(signal, channels);
       allTraces.push(trace);
       escalationsRun += 1;
-      await audit.appendAuditEntry(db, {
+      await appendAudit({
         instanceId: event.instance.id,
         kind: "signal-generated",
         ref: { type: "signal", id: event.id },
@@ -892,7 +909,7 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
   for (const trace of allTraces) {
     await traces.saveAgentTrace(db, trace);
   }
-  await audit.appendAuditEntry(db, {
+  await appendAudit({
     instanceId: event.instance.id,
     kind: "signal-generated",
     ref: { type: "signal", id: event.id },
@@ -924,7 +941,7 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
       await traces.saveAgentTrace(db, trace);
       shadowRunsCompleted += 1;
       const channelDecisions = trace.steps.filter((s) => s.kind === "decision");
-      await audit.appendAuditEntry(db, {
+      await appendAudit({
         instanceId: event.instance.id,
         kind: "signal-generated",
         ref: { type: "signal", id: event.id },
@@ -948,13 +965,18 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
 
   // 6. Evaluate policy.
   const evaluation = evaluatePolicy(policy, signal);
-  await audit.appendAuditEntry(db, {
+  await appendAudit({
     instanceId: event.instance.id,
     kind: "policy-evaluated",
     ref: { type: "signal", id: event.id },
     payload: {
       matchedRuleId: evaluation.matchedRuleId ?? null,
       action: evaluation.action,
+      // The condition subtree that actually fired, with observed values. Kept
+      // in the payload rather than a column because only the payload is
+      // covered by the chain hash — routing evidence outside the hash is
+      // evidence anyone can edit.
+      witness: evaluation.witness ?? null,
     },
     actorId: null,
   });
@@ -979,7 +1001,7 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
     };
     await review.saveReviewItem(db, item);
     reviewItemId = item.id;
-    await audit.appendAuditEntry(db, {
+    await appendAudit({
       instanceId: event.instance.id,
       kind: "queue-routed",
       ref: { type: "review-item", id: item.id },
@@ -987,6 +1009,17 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
         queue,
         contentEventId: event.id,
         recommendedAction: evaluation.action,
+        // Which gate this is, and where in the sequence it sits. Both are
+        // needed to re-score compliance later: `gateClass` says whether the
+        // stop was the operator's rule or the system's own uncertainty, and
+        // `gatePosition` says how many actions preceded it.
+        //
+        // A non-gate route records null for both. Null is load-bearing here —
+        // it must never be coerced to 0, because 0 reads as "approved before
+        // anything happened" and manufactures compliance nobody observed.
+        gateClass: gateClassOf(evaluation.action),
+        gatePosition:
+          gateClassOf(evaluation.action) === null ? null : actionsTaken,
       },
       actorId: null,
     });
