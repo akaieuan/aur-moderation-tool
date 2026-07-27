@@ -1,8 +1,8 @@
 # inertial
 
-**A reference architecture for auditable AI content review.** Not a deployable moderation service — a working demonstration of one architectural thesis, end-to-end through real code:
+**A reference architecture for gating AI agents in consequential domains.** Not a deployable moderation service — a working demonstration of one architectural thesis, end-to-end through real code:
 
-> *AI classification outputs and human review actions should both land in a hash-chained audit log, with typed structured signals as the unit of evidence and per-instance YAML as the unit of policy.*
+> *An agent operating where being wrong has consequences should not be able to decide anything. It emits typed, evidence-bearing signals; declarative per-instance policy turns those into routing; a human commits the irreversible action; and all three land in a hash-chained audit log.*
 
 What's real: schema-first Zod contracts across 33 typed shapes, a skill/tool registry with a catalog + per-instance registration table, a YAML policy evaluator with hash-chained `/verify`, an eval harness scoring per-(skill, channel) Brier/ECE/agreement, a reviewer-tag layer with per-modality / per-segment scope, and a reviewer dashboard wired to all of it.
 
@@ -97,16 +97,23 @@ The right rail extends edge-to-edge from the top of the window. The Chat panel m
 
 ## Why I built this
 
-Commercial moderation APIs claim accuracy without proof and ship verdicts without evidence. Federated mods distrust them because they can't audit them; centralized compliance teams need defensible records they can show regulators. Both want decomposed, evidence-rich decisions; neither has them.
+Agents are being deployed into consequential domains faster than the scaffolding to contain them is being built. The interesting question isn't *is the classifier accurate* — it's **what is the agent allowed to do, what must it show you, and who commits the irreversible action.**
 
-I wanted to know: what would a *substrate* for that look like — schemas, audit log, skill registry, eval harness, reviewer surface — wired together end-to-end with real code rather than a slide-deck. So I built it. The thesis is:
+Content moderation is where I tested it, because it has every property that makes agent autonomy dangerous: volume that forces automation, real harm in both directions — leaving harm up, and taking speech down — and decisions you may have to defend to a regulator months later.
 
-- **Inertials (sub-agents) emit typed structured signals**, not verdicts. Probability + confidence + evidence pointers. The policy layer turns signals into routing; humans turn routing into actions.
-- **Per-instance YAML policy** so federation is a first-class case, not an afterthought. The same code serves "wide-open community" and "high-compliance enterprise" because the operator brings their own rules.
-- **Per-skill privacy posture lives in the schema.** A skill is either `dataLeavesMachine: true` or false. The audit chain records which model saw which event so "no remote API touched my instance for 30 days" becomes a SQL query, not a vendor promise.
-- **Reviewer decisions auto-promote into the eval gold set.** Every commit grows the calibration corpus by one structured row, so the system improves at measuring itself.
+So the architecture is a set of gates. Each one is checkable in this repo:
 
-That thesis — verification substrate, not vendor API — is what's actually built and demonstrated end-to-end.
+- **Agents cannot decide.** `StructuredSignal` has no verdict field, and no `@inertial/agents-*` package imports `PolicyAction`. The type system, not convention, is what prevents an agent from moderating anything.
+- **Agents must show their work.** Every channel carries `EvidencePointer`s — byte spans, bounding boxes, frame timestamps — so a reviewer sees *why*, not just *what*.
+- **Agents must admit uncertainty.** `confidence` is a separate field from `probability`, and an agent that didn't run must omit the channel rather than emit a low score. Absence is meaningful.
+- **Agents run only where permitted.** The `skills:` block governs which skills may execute per instance; `blockDataLeavingMachine` is a hard gate the operator can set regardless of which API keys are configured.
+- **Agents cannot escalate themselves.** The `escalation:` block decides when a cheap local model hands off to an expensive cloud one — the local agent has no say in whether it gets a second opinion.
+- **Agents earn trust before they count.** `shadow:` skills run silently on every event and are graded against the human verdict, so calibration is measured before a skill's output is allowed to route anything.
+- **Humans commit.** Policy produces a *recommended* action; a `ReviewDecision` can override it. Nothing irreversible happens without a person, and both the agent's reasoning and the human's override land in a hash-chained audit log.
+
+Federation falls out of this rather than motivating it: once policy is per-instance data instead of vendor configuration, the same code serves a wide-open community and a high-compliance enterprise because the operator brings their own gates.
+
+The moderation queue is the demo surface. The gating is the thesis.
 
 ### What this is NOT, in plain language
 
@@ -452,12 +459,42 @@ The `BaseAgent.run()` lifecycle wraps `analyze()` with timing, error capture, an
 
 ## Policy DSL
 
-Per-instance YAML, structured AST (no string evaluation, fully auditable):
+Per-instance YAML, structured AST (no string evaluation, fully auditable). Four blocks, and only the last one is about routing — the other three are where the gating lives:
+
+| Block | Gate it enforces |
+|---|---|
+| `skills:` | **Which agents may execute at all.** Allow / block lists, plus `blockDataLeavingMachine` — a hard gate that forbids any skill with `dataLeavesMachine: true`, regardless of which API keys the operator has configured. |
+| `escalation:` | **When a cheap local model hands off to an expensive cloud one.** The condition is evaluated against the *partial* signal after the local pass. The local agent has no say in whether it gets a second opinion. |
+| `shadow:` | **Which agents run without counting.** Shadow skills fire on every event, never touch the production signal or routing, and get paired with the human verdict to grow the gold set. A skill's calibration is measured before its output is trusted to route anything. |
+| `rules:` | **How the merged signal maps to a queue.** First match wins; the result is a *recommended* action a reviewer can override. |
 
 ```yaml
 instance: mastodon.social
 version: 3
 basedOn: standard
+
+# Which agents this instance permits. A federated hardliner sets
+# blockDataLeavingMachine: true and no cloud skill can run here, even
+# if the key is present in the environment.
+skills:
+  block: []
+  blockExecutionModel: []
+  blockDataLeavingMachine: false
+
+# Local triages cheaply; only the uncertain band pays for Claude.
+escalation:
+  - id: escalate-borderline-toxicity
+    description: "Local score in the uncertain band (0.4-0.7). Ask for a second opinion."
+    when:
+      all:
+        - { channel: toxic, op: gt, value: 0.4 }
+        - { channel: toxic, op: lt, value: 0.7 }
+    run:
+      - text-classify-toxicity@anthropic
+
+# Runs on every event, affects nothing. Graded against the human verdict.
+shadow:
+  - text-classify-toxicity@anthropic
 
 rules:
   - id: severe-toxicity-deep
@@ -494,7 +531,9 @@ default:
   reason: "no rule matched"
 ```
 
-Conditions form a tree: leaf (`channel + op + value` or `entity + present`), `all: [...]`, or `any: [...]`. Rules evaluate in declaration order; first match wins. The original AST is preserved in the audit log alongside the rule id, so any operator decision can be traced back to the exact configuration that produced it.
+Conditions form a tree: leaf (`channel + op + value` or `entity + present`), `all: [...]`, or `any: [...]`. Rules evaluate in declaration order; first match wins.
+
+It's an AST rather than an expression string on purpose. There is no path through `eval` or `Function`, so operator-authored policy can't execute arbitrary code; every condition serializes to JSON verbatim into the audit log alongside the rule id, so "why was this routed here" stays answerable months later; and extending the language means adding a Zod discriminant, not writing a parser.
 
 ---
 
