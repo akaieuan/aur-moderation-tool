@@ -1,7 +1,16 @@
 import { z } from "zod";
 
 /**
- * Audit log entry. Append-only, hash-chained for tamper detection.
+ * Audit log entry. Append-only and ordered.
+ *
+ * Entries carry a prevHash → hash linkage, which detects edits to a recorded
+ * payload. Treat that as an integrity check, not a security guarantee: the
+ * hash covers the payload but not `kind`, `ref`, or `actorId`, so this is not
+ * a tamper-proof ledger and nothing here should be described as one.
+ *
+ * What the log is *for* is ordering. Compliance is a question of what preceded
+ * what — did a recorded approval come before the consequential act — and that
+ * only needs a reliable sequence, which is what this provides.
  *
  * Every state-changing operation in inertial emits one of these:
  *   - content event ingested

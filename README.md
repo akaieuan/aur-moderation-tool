@@ -2,9 +2,9 @@
 
 **A reference architecture for gating AI agents in consequential domains.** Not a deployable moderation service — a working demonstration of one architectural thesis, end-to-end through real code:
 
-> *An agent operating where being wrong has consequences should not be able to decide anything. It emits typed, evidence-bearing signals; declarative per-instance policy turns those into routing; a human commits the irreversible action; and all three land in a hash-chained audit log.*
+> *An agent operating where being wrong has consequences should not be able to decide anything. It emits typed, evidence-bearing signals; declarative per-instance policy turns those into routing; a human commits the irreversible action; and all three land in an ordered, append-only record of who approved what and when.*
 
-What's real: schema-first Zod contracts across 33 typed shapes, a skill/tool registry with a catalog + per-instance registration table, a YAML policy evaluator with hash-chained `/verify`, an eval harness scoring per-(skill, channel) Brier/ECE/agreement, a reviewer-tag layer with per-modality / per-segment scope, and a reviewer dashboard wired to all of it.
+What's real: schema-first Zod contracts across 33 typed shapes, a skill/tool registry with a catalog + per-instance registration table, a YAML policy evaluator with an append-only audit log and a `/verify` chain walk, an eval harness scoring per-(skill, channel) Brier/ECE/agreement, a reviewer-tag layer with per-modality / per-segment scope, and a reviewer dashboard wired to all of it.
 
 What's stubbed (deliberately): every source connector (Mastodon, Bluesky, Lemmy, Discord, Slack), the action dispatcher that pushes decisions back to source platforms, the `agents-audio` and `agents-identity` packages (each is a single class returning `[]`), gateway media download + perceptual hashing, and any auth / observability layer. The architecture diagram below documents the *target* shape; what runs today is a verification substrate with a reference UI on top.
 
@@ -57,7 +57,7 @@ The Quick / Deep / Escalation queues live side by side. Each card is one pending
 
 The detail panel surfaces every signal the runciter generated: channel chips with per-channel evidence, **reviewer tags** with per-modality / per-segment scope (Add tag opens a popover catalog filtered to the event's modalities), a **video frames** strip when the event is video (thumbnails with timestamp overlays + top-channel score per keyframe), **author history** with verdict pills, and **similar events** (top-K cosine-similar past events via Voyage embeddings + pgvector).
 
-Approve / Remove / Escalate commits a `ReviewDecision` + every applied tag into the hash-chained audit log. Tags auto-promote into the gold set as `reviewer-derived` rows, so the eval corpus grows on every commit.
+Approve / Remove / Escalate commits a `ReviewDecision` + every applied tag into the append-only audit log. Tags auto-promote into the gold set as `reviewer-derived` rows, so the eval corpus grows on every commit.
 
 ![Queue review session — channels + reviewer tags + similar events](docs/screenshots/queue-review.png)
 
@@ -75,7 +75,7 @@ Active classifiers + registered tools, with execution model + privacy budget vis
 
 ![Skills create sheet — add a new classifier](docs/screenshots/skills-create-sheet.png)
 
-### Compliance — hash-chained audit + shadow agreement
+### Compliance — audit trail + shadow agreement
 
 Per-skill shadow agreement (how often each silent skill agreed with the human) plus the live audit feed — every state transition the runciter wrote, in order.
 
@@ -109,7 +109,7 @@ So the architecture is a set of gates. Each one is checkable in this repo:
 - **Agents run only where permitted.** The `skills:` block governs which skills may execute per instance; `blockDataLeavingMachine` is a hard gate the operator can set regardless of which API keys are configured.
 - **Agents cannot escalate themselves.** The `escalation:` block decides when a cheap local model hands off to an expensive cloud one — the local agent has no say in whether it gets a second opinion.
 - **Agents earn trust before they count.** `shadow:` skills run silently on every event and are graded against the human verdict, so calibration is measured before a skill's output is allowed to route anything.
-- **Humans commit.** Policy produces a *recommended* action; a `ReviewDecision` can override it. Nothing irreversible happens without a person, and both the agent's reasoning and the human's override land in a hash-chained audit log.
+- **Humans commit.** Policy produces a *recommended* action; a `ReviewDecision` can override it. Nothing irreversible happens without a person, and both the agent's reasoning and the human's override land in an append-only audit log — in order, with the gate's position recorded, because compliance is entirely a question of what preceded what.
 
 Federation falls out of this rather than motivating it: once policy is per-instance data instead of vendor configuration, the same code serves a wide-open community and a high-compliance enterprise because the operator brings their own gates.
 
@@ -167,8 +167,8 @@ The moderation queue is the demo surface. The gating is the thesis.
        │                  └──────────────┘
        ▼
   ┌─────────────────┐
-  │  @inertial/db   │  Hash-chained audit log: every state transition writes one
-  │  (Postgres +    │  entry per instance. prevHash → hash linkage; tamper-detectable.
+  │  @inertial/db   │  Append-only audit log: every state transition writes one
+  │  (Postgres +    │  entry per instance, in order. prevHash → hash linkage detects edits.
   │    pgvector)    │
   └─────────────────┘
 ```
@@ -188,7 +188,7 @@ The architecture supports four execution tiers. **Three of the four are exercise
 | **2. Local server** | Ollama daemon at `localhost:11434` | `brew install ollama && ollama pull llama3.2-vision` | nothing yet — planned for the in-flight `vision-ollama` work |
 | **3. Cloud** | Anthropic / Voyage / (future) OpenAI / Gemini | `@inertial/agents-cloud` package + per-skill API key wired through the dashboard catalog | `text-classify-toxicity@anthropic`, `image-classify@anthropic`, `text-embed@voyage`, **video frame-by-frame** (extract via local ffmpeg → image-classify@anthropic per keyframe) |
 
-Privacy posture is per-skill: Tier 0/1 never leave the machine; Tier 3 always does. The audit log records which model saw which event, so a federated mod can prove "no remote API touched my instance over the last 30 days" — not as a promise, as a hash-chained artifact.
+Privacy posture is per-skill: Tier 0/1 never leave the machine; Tier 3 always does. The audit log records which model saw which event, so "no remote API touched my instance over the last 30 days" is a query against a recorded log rather than a vendor promise.
 
 ### Honest capability matrix
 
@@ -266,7 +266,7 @@ Then the dashboard:
 pnpm --filter @inertial/app dev
 ```
 
-The Queue tab pulls live data from the Runciter, lets you expand each item to see post text + per-inertial traces, and approve/remove commits a `ReviewDecision` with a hash-chained audit entry.
+The Queue tab pulls live data from the Runciter, lets you expand each item to see post text + per-inertial traces, and approve/remove commits a `ReviewDecision` with an audit entry.
 
 For real Postgres persistence:
 
@@ -281,7 +281,7 @@ DATABASE_URL=postgres://aur:aur@localhost:5432/aur pnpm --filter @inertial/runci
 
 ## Verifiability — `pnpm eval`
 
-Calibration is a hash-chained artifact, not vibes. From the repo root:
+Calibration is a recorded artifact, not vibes. From the repo root:
 
 ```bash
 pnpm eval
@@ -331,7 +331,7 @@ Two tables. The first is what runs. The second is what doesn't and why it matter
 |---|---|
 | `@inertial/schemas` | Real. 33 Zod schemas: ContentEvent, StructuredSignal, AgentTrace, ReviewItem, ReviewDecision (+ `reviewerTags`), Policy, AuditEntry, SkillRegistration, GoldEvent, EvalRun, SkillCalibration, ReviewerTag + scope, TagAgreement, plus all the inner shapes (Probability, EvidencePointer, SignalChannel, ExtractedEntity, Modality, Source, MediaAsset, Author, InstanceContext, …). |
 | `@inertial/core` | Real. BaseAgent + TraceCollector + InMemoryRunciter, SkillRegistry + ToolRegistry, `SKILL_CATALOG`, `TAG_CATALOG` (~18 starter tags). |
-| `@inertial/db` | Real. 13 tables (incl. `skill_registrations`, `gold_events`, `eval_runs`, `skill_calibrations`, `reviewer_tags`, `event_embeddings`). **68 hermetic integration tests.** Hash-chained audit with tamper detection. |
+| `@inertial/db` | Real. 13 tables (incl. `skill_registrations`, `gold_events`, `eval_runs`, `skill_calibrations`, `reviewer_tags`, `event_embeddings`). **68 hermetic integration tests.** Append-only audit log with ordered entries and prevHash linkage. |
 | `@inertial/policy` | Real. YAML loader + structured AST evaluator. First-match wins; per-instance versioning. Confidence-based escalation working. |
 | `@inertial/eval` | Real. Brier / ECE / agreement + tag-PRF scoring, calibration aggregator, JSONL loader, reviewer-derived auto-promotion, persistence-agnostic runner. **30 unit tests.** |
 | `apps/gateway` | Real. Hono ingest, normalizes payloads, forwards to runciter. |
@@ -392,7 +392,7 @@ packages/
     lemmy/              @inertial/connectors-lemmy        — (stub)
     sdk-webhook/        @inertial/connectors-sdk-webhook  — (stub)
   policy/               @inertial/policy          — YAML loader + AST evaluator
-  db/                   @inertial/db              — Drizzle + Postgres + pgvector + hash-chained audit
+  db/                   @inertial/db              — Drizzle + Postgres + pgvector + append-only audit
   eval/                 @inertial/eval            — Brier/ECE/agreement scoring + JSONL loader + reviewer-derived auto-promotion
   sdk/                  @inertial/sdk             — public SDK surface (stub)
   registry/             @inertial/registry        — shadcn-compatible UI primitives (stub)
@@ -547,14 +547,14 @@ This is the order pillars landed during the build, not a commitment to keep buil
 | Pillar | What landed | Why it matters |
 |---|---|---|
 | **Foundations** | `@inertial/schemas` (33 typed shapes), `@inertial/core` (Runciter, BaseAgent, max-confidence aggregator), gateway + runciter shells, end-to-end smoke | Every cross-package shape is a typed Zod schema. The runciter dispatches inertials; humans decide. |
-| **Persistence + audit** | `@inertial/db` (Drizzle + Postgres + pgvector), 13 tables, **hash-chained audit log with tamper detection**, pglite dev factory, 68 hermetic integration tests | "No remote API touched my instance over the last 30 days" becomes a hash-chained artifact, not a promise. |
+| **Persistence + audit** | `@inertial/db` (Drizzle + Postgres + pgvector), 13 tables, **append-only audit log with ordered entries**, pglite dev factory, 68 hermetic integration tests | "No remote API touched my instance over the last 30 days" becomes a query against a recorded log, not a promise. |
 | **Live moderation pipeline** | Real `text-toxicity-local` (`Xenova/toxic-bert` via transformers.js, ~50ms/event after warmup), `@inertial/policy` YAML evaluator, DB-persisted pipeline, dashboard reading live data, decision commit flow | Seed 13 events → see them route to queues → approve/remove from the dashboard → audit log grows. |
 | **Vision + split-pane review** | Claude Vision moderation (`image-classify@anthropic`), split-pane queue → detail layout, evidence rendering with bbox overlays | Image flags get the same audit + reviewer treatment as text. |
 | **Shadow runs + compliance** | Skills can run as `shadow:` peers; their decisions are recorded silently. Compliance tab surfaces per-skill agreement vs. the human reviewer. | Free continuous gold-set generation. Calibration data flows back into the eval harness. |
 | **Reviewer experience** | Dashboard FlagMap heatmap with hover stats, three-deck queue layout with inline review session, Pipelines visual canvas, Skills create sheet, Insights rebuilt on internal primitives, side panels (Chat / Notes / Agent activity) docked edge-to-edge | The dashboard reads as one app instead of seven loosely related views. See [`docs/screenshots/`](docs/screenshots/). |
 | **Skills + tools layer** | Skill / tool registries in `@inertial/core`, `SKILL_CATALOG` of installable modules, `skill_registrations` persistence, dashboard catalog picker + per-instance hot toggle, factory-shaped cloud skills, `db.author.list-history` + `db.events.find-similar` + `db.embeddings.get` tools | Adding a skill becomes a registration row, not a code change. The reviewer can wire Voyage / Anthropic / etc. without touching YAML. |
 | **Context engine** | `ContextAgent` composing `text-context-author@local` + `text-context-similar@local`. Voyage embeddings populate `event_embeddings` inline on every text-bearing event. Author history + similar events surface in the queue detail panel. | "Has this user done this before? Has anything like this happened before?" answered for every queued item. |
-| **Eval harness + reviewer-tagged corpus** | `@inertial/eval` (Brier / ECE / agreement scoring), `gold_events` + `eval_runs` + `skill_calibrations` tables, JSONL gold-set v1 (30 hand-labeled cases), `pnpm eval` CLI with summary table, runciter `/v1/eval/runs` endpoints, Insights tab live, **reviewer-tag layer** (`TAG_CATALOG`, `reviewer_tags` table, per-modality / per-segment scoping, in-line tag picker on every queued item) | Calibration becomes hash-chained, not vibes. Every reviewer commit grows the gold set automatically (auto-promotion). The "good video bad audio" mixed-validity case gets a precise label, not a whole-asset verdict. |
+| **Eval harness + reviewer-tagged corpus** | `@inertial/eval` (Brier / ECE / agreement scoring), `gold_events` + `eval_runs` + `skill_calibrations` tables, JSONL gold-set v1 (30 hand-labeled cases), `pnpm eval` CLI with summary table, runciter `/v1/eval/runs` endpoints, Insights tab live, **reviewer-tag layer** (`TAG_CATALOG`, `reviewer_tags` table, per-modality / per-segment scoping, in-line tag picker on every queued item) | Calibration becomes a recorded artifact, not vibes. Every reviewer commit grows the gold set automatically (auto-promotion). The "good video bad audio" mixed-validity case gets a precise label, not a whole-asset verdict. |
 | **Video keyframe extraction (not video understanding)** | `video-frame-extract@local` skill (system ffmpeg), `VideoAgent` composing extract → image-classify on each frame, `video-segment` evidence with `keyframeUrl`, dashboard `<VideoFramesSection>` rendering per-keyframe scores. **No temporal reasoning, no audio, no scene-change detection, no live-stream support.** | Demonstrates that the architecture handles a new modality by composing existing skills (image classifier per-frame). Honest framing: "image moderation with auto-frame-grab," not video understanding. |
 
 ### Not built — what would be needed for this to become deployable

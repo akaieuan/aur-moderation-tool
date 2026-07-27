@@ -41,6 +41,13 @@ confidence · cost · scope · approval-chain · rate-limit + compose + store
 a stretch fit — adopting it makes "no path to executed without an approval event" a property of a
 tested library instead of an `if` in the runciter.
 
+**`cost` and `rate-limit` are deliberately not adopted as gate classes.** Cost is worth tracking —
+`SkillMeta.costEstimateUsd` and the per-skill privacy posture already do — but it is a *variable*
+observed about a run, not a goal the architecture exists to serve. `gateClassOf` returns only
+`mandated` or `discretionary`, and it should stay that way: a budget ceiling stopping an agent is
+an operational limit, not a statement about what the agent is permitted to decide. Folding it in
+would put spend on the same axis as authority and quietly make the thesis about efficiency.
+
 - **Adopt:** `@hitl-kit/gates` (real dependency, Phase 1).
 - **Attribute:** the already-vendored `components/hitl/*` as HITL Kit registry components.
 - **Defer:** eval-kit and tag-kit — unpublished. Mark as documented seams, don't claim them.
@@ -205,8 +212,8 @@ independently revertible.
 
 ## Do not touch
 
-Per the handoff, and confirmed here: real Postgres persistence + hash chain (68 hermetic
-integration tests), real classifiers (toxic-bert / Claude Vision / Voyage) and the four-tier
+Per the handoff, and confirmed here: real Postgres persistence + the append-only audit chain (68
+hermetic integration tests), real classifiers (toxic-bert / Claude Vision / Voyage) and the four-tier
 execution model with per-skill `dataLeavesMachine`, `video-frame-extract` + `VideoAgent`, the
 33-schema contract layer, and the honest documentation — the "Not real" table, the 31-gold-event
 caveat, and seed event #5 showing toxic-bert missing a threat at 0.50. That last one is the
