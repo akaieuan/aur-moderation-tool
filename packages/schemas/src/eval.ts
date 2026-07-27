@@ -104,6 +104,52 @@ export const TagAgreementSchema = z.object({
 });
 export type TagAgreement = z.infer<typeof TagAgreementSchema>;
 
+/**
+ * Mandated-gate scoring — policy compliance.
+ *
+ * Binary and machine-checkable: for every consequential act, did a recorded
+ * approval precede it? Agent confidence is deliberately not an input — that
+ * is exactly what makes this policy rather than judgment.
+ */
+export const GateComplianceSchema = z.object({
+  /** Consequential acts that required a preceding approval. */
+  gatesRequired: z.number().int().nonnegative(),
+  /** Of those, how many had a recorded approval in the correct position. */
+  gatesHonored: z.number().int().nonnegative(),
+  /** gatesHonored / gatesRequired. 1.0 = fully compliant. */
+  complianceRate: z.number().min(0).max(1),
+  /**
+   * Acts whose ordering could not be established from the audit chain — e.g.
+   * entries written before gate ordering was recorded. These are **not**
+   * counted as honored: an unverifiable gate is a failed gate for scoring
+   * purposes, whatever it did at runtime. Counting them as passes is how a
+   * compliance number starts lying.
+   */
+  unverifiable: z.number().int().nonnegative().default(0),
+});
+export type GateCompliance = z.infer<typeof GateComplianceSchema>;
+
+/**
+ * Discretionary-gate scoring — judgment under uncertainty.
+ *
+ * Two-sided failure, so a single rate would hide half of it:
+ *   - **ask-precision** — of the stops the system made, how many a reviewer
+ *     agreed were genuinely ambiguous. Low means crying wolf, which offloads
+ *     the job back onto the human.
+ *   - **blocker-recall** — of the cases a reviewer judged warranted a stop,
+ *     how many the system actually stopped on. Low means silent guessing.
+ */
+export const GateJudgmentSchema = z.object({
+  askPrecision: z.number().min(0).max(1),
+  blockerRecall: z.number().min(0).max(1),
+  /** Stops the system made. */
+  asked: z.number().int().nonnegative(),
+  /** Cases a reviewer judged warranted a stop. */
+  shouldHaveAsked: z.number().int().nonnegative(),
+  samples: z.number().int().nonnegative(),
+});
+export type GateJudgment = z.infer<typeof GateJudgmentSchema>;
+
 export const EvalRunStatusSchema = z.enum(["running", "completed", "failed"]);
 export type EvalRunStatus = z.infer<typeof EvalRunStatusSchema>;
 
@@ -122,6 +168,23 @@ export const EvalRunSchema = z.object({
   endedAt: z.string().datetime().nullable(),
   /** Aggregated per (skill, channel) results. Empty when status != completed. */
   skillCalibrations: z.array(SkillCalibrationSchema).default([]),
+  /**
+   * Gate scoring — deliberately two fields, never one.
+   *
+   * Compliance measures obedience to the operator: did a recorded approval
+   * precede every consequential act. It is binary and machine-checkable, and
+   * agent confidence is not an input.
+   *
+   * Judgment measures whether the system knows the edge of its own competence,
+   * and fails in two directions: escalating everything offloads the job onto
+   * the reviewer, escalating nothing is silent guessing. Hence a
+   * precision/recall shape rather than a rate.
+   *
+   * Averaging the two produces a number that means nothing. Null until the
+   * scorer runs.
+   */
+  gateCompliance: GateComplianceSchema.nullable().default(null),
+  gateJudgment: GateJudgmentSchema.nullable().default(null),
   /** Operator handle, "ci", or null for system-triggered runs. */
   triggeredBy: z.string().nullable(),
 });

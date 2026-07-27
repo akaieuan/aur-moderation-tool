@@ -50,6 +50,7 @@ import {
   type ContentEvent,
   type GoldEvent,
   type PolicyAction,
+  type QueueKind,
   type ReviewItem,
   type SignalChannel,
   type SkillRegistration,
@@ -782,6 +783,39 @@ interface ProcessResult {
   shadowRunsCompleted: number;
 }
 
+/**
+ * Which review queue an action routes to, or `null` when it resolves without a
+ * human ever seeing it.
+ *
+ * Exhaustive by construction — a new `PolicyAction` variant fails to compile
+ * here rather than silently skipping review, which is the failure mode that
+ * matters most in this function.
+ *
+ * Note that a held `auto-remove` routes to a queue. That is the whole point:
+ * the machine may resolve a case alone only when the resolution is to do
+ * nothing, so only `auto-allow` (and an operator who explicitly unheld a
+ * removal) leaves here without a review item.
+ */
+function queueForAction(action: PolicyAction): QueueKind | null {
+  switch (action.kind) {
+    case "queue.quick":
+      return "quick";
+    case "queue.deep":
+      return "deep";
+    case "escalate.mandatory":
+    case "escalate.discretionary":
+      return "escalation";
+    case "auto-remove":
+      return action.heldForApproval ? "quick" : null;
+    case "auto-allow":
+      return null;
+    default: {
+      const exhaustive: never = action;
+      return exhaustive;
+    }
+  }
+}
+
 async function processEvent(event: ContentEvent): Promise<ProcessResult> {
   // 1. Persist + audit ingestion.
   await events.saveContentEvent(db, event);
@@ -927,17 +961,8 @@ async function processEvent(event: ContentEvent): Promise<ProcessResult> {
 
   // 7. Route into the queue if policy says so.
   let reviewItemId: string | undefined;
-  if (
-    evaluation.action.kind === "queue.quick" ||
-    evaluation.action.kind === "queue.deep" ||
-    evaluation.action.kind === "escalate.mandatory"
-  ) {
-    const queue: ReviewItem["queue"] =
-      evaluation.action.kind === "queue.quick"
-        ? "quick"
-        : evaluation.action.kind === "queue.deep"
-          ? "deep"
-          : "escalation";
+  const queue = queueForAction(evaluation.action);
+  if (queue !== null) {
     const now = new Date().toISOString();
     const item: ReviewItem = {
       id: randomUUID(),

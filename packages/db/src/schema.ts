@@ -30,6 +30,8 @@ import {
 import type {
   Author,
   ExtractedEntity,
+  GateCompliance,
+  GateJudgment,
   PolicyAction,
   PolicyRule,
   SignalChannel,
@@ -512,6 +514,15 @@ export const evalRuns = pgTable(
     meanLatencyMs: integer("mean_latency_ms"),
     startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }).notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true, mode: "string" }),
+    /**
+     * Gate scoring — two columns on purpose. Compliance measures obedience to
+     * the operator (binary, machine-checkable); judgment measures whether the
+     * system knows the edge of its own competence (precision/recall shaped).
+     * Averaging them yields a number that means nothing, so they never share
+     * a column. Null until a scorer that can read gate ordering exists.
+     */
+    gateCompliance: jsonb("gate_compliance").$type<GateCompliance | null>(),
+    gateJudgment: jsonb("gate_judgment").$type<GateJudgment | null>(),
     triggeredBy: text("triggered_by"),
   },
   (t) => [

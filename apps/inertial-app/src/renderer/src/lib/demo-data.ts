@@ -954,6 +954,34 @@ function makeDemoCalibrations() {
   ];
 }
 
+/**
+ * Gate scores for the demo runs.
+ *
+ * Deliberately not flattering. Compliance sits below 1.0 only because three
+ * gates predate ordering being recorded and so can't be verified — and an
+ * unverifiable gate scores as failed, which is the point. Judgment sits in the
+ * middling range a real discretionary gate actually lands in, with precision
+ * ahead of recall: the system stops on the obvious ambiguity and misses the
+ * subtle kind.
+ */
+function makeDemoGateScores(drift = 0): Pick<EvalRun, "gateCompliance" | "gateJudgment"> {
+  return {
+    gateCompliance: {
+      gatesRequired: 47,
+      gatesHonored: 44,
+      complianceRate: 44 / 47,
+      unverifiable: 3,
+    },
+    gateJudgment: {
+      askPrecision: Math.min(1, 0.72 + drift),
+      blockerRecall: Math.min(1, 0.61 + drift),
+      asked: 18,
+      shouldHaveAsked: 21,
+      samples: 30,
+    },
+  };
+}
+
 export function getDemoLatestEvalRun(): EvalRun {
   return {
     id: uuid("demo-eval-latest"),
@@ -965,6 +993,7 @@ export function getDemoLatestEvalRun(): EvalRun {
     startedAt: new Date(NOW - 1000 * 60 * 25).toISOString(),
     endedAt: new Date(NOW - 1000 * 60 * 24).toISOString(),
     skillCalibrations: makeDemoCalibrations(),
+    ...makeDemoGateScores(),
     triggeredBy: "dashboard",
   };
 }
@@ -990,6 +1019,7 @@ export function getDemoEvalRuns(): EvalRun[] {
         brierScore: Math.max(0, c.brierScore - drift),
         ece: Math.max(0, c.ece - drift),
       })),
+      ...makeDemoGateScores(drift),
       triggeredBy: i === 0 ? "dashboard" : "ci",
     } satisfies EvalRun;
   });

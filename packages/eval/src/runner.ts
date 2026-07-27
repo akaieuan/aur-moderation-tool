@@ -129,6 +129,12 @@ export async function runEval(input: RunEvalInput): Promise<RunEvalResult> {
     startedAt,
     endedAt,
     skillCalibrations: calibrations,
+    // Gate scoring needs the audit chain's gate-ordering positions to compute
+    // compliance, and reviewer verdicts on discretionary stops to compute
+    // judgment. Neither is recorded yet (Phase 3 of the refactor plan), so
+    // these stay null rather than being defaulted to a flattering number.
+    gateCompliance: null,
+    gateJudgment: null,
     triggeredBy: input.triggeredBy ?? null,
   };
 

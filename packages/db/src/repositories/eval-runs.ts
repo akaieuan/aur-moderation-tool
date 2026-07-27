@@ -26,6 +26,8 @@ function rowToRun(row: EvalRunRow, calibrations: SkillCalibration[] = []): EvalR
     startedAt: toIso(row.startedAt),
     endedAt: row.endedAt ? toIso(row.endedAt) : null,
     skillCalibrations: calibrations,
+    gateCompliance: row.gateCompliance ?? null,
+    gateJudgment: row.gateJudgment ?? null,
     triggeredBy: row.triggeredBy ?? null,
   });
 }

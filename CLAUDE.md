@@ -57,7 +57,7 @@ Connectors → Gateway (Hono ingest) → Runciter (orchestrator, in apps/runcite
 
 - **`apps/gateway`** — Hono HTTP service. Owns ingest, webhook SDK, media download + perceptual hashing. Normalizes inbound platform payloads into `ContentEvent`s before they enter the Runciter. Media URLs in `ContentEvent.media[].url` are *internal* storage URLs (S3/R2/local), never the original platform URL — this normalization happens here.
 - **`apps/runciter`** — the Runciter (orchestrator) host. Consumes `ContentEvent`s, dispatches inertials based on `event.modalities`, aggregates `StructuredSignal`s, runs the policy engine, and lands events on review queues. Logs use the `[runciter]` prefix.
-- **`apps/inertial-app`** — Electron dashboard for human reviewers. Built on HITL-KIT primitives (sibling project). Surfaces queues, signals, and decisions; emits `ReviewDecision`s.
+- **`apps/inertial-app`** — Electron dashboard for human reviewers. The review surfaces under `components/hitl/` are HITL Kit primitives *vendored* from the [hitlkit.dev](https://hitlkit.dev) shadcn registry (copied in, not installed — treat them as upstream and avoid drifting them). Surfaces queues, signals, and decisions; emits `ReviewDecision`s.
 
 ### Package responsibilities
 
@@ -67,7 +67,7 @@ Connectors → Gateway (Hono ingest) → Runciter (orchestrator, in apps/runcite
 - **`@inertial/policy`** — YAML loader + evaluator. Per-instance policies live in `config/policies/` and are resolved by `instance.id` from the event.
 - **`@inertial/connectors-{activitypub,atproto,lemmy,sdk-webhook}`** — one workspace per source platform. Each connector's job is to emit normalized `ContentEvent`s; everything platform-specific (auth, pagination, payload shape) is contained here.
 - **`@inertial/db`** — Drizzle + Postgres + pgvector. pgvector is the choice because perceptual-hash and embedding similarity search live alongside the relational data.
-- **`@inertial/eval`** — wraps `@eval-kit/core` (sibling project) for the eval harness. Gold sets and suites live in `config/evals/`.
+- **`@inertial/eval`** — the eval harness. Brier / ECE / agreement scoring is implemented here, *not* delegated to `@eval-kit/core` — that package is a design sibling, not a dependency (its gate release exists only on its main branch and was never published). Gold sets and suites live in `config/evals/`.
 - **`@inertial/sdk`** — public SDK surface for external consumers.
 - **`@inertial/registry`** — shadcn-compatible component registry (the toolkit's published UI primitives).
 

@@ -21,7 +21,7 @@ This is portfolio work, not a maintained OSS project. The point is the architect
 `inertial` is two things in one monorepo:
 
 1. **`@inertial/*` toolkit** — orchestration, persistence, policy, and HITL primitives. Sibling to [`eval-kit`](https://github.com/akaieuan/eval-kit) and [`HITL-KIT`](https://github.com/akaieuan/HITL-KIT).
-2. **`@inertial/app`** — Electron + React + Tailwind reference dashboard for moderators, built on HITL-KIT.
+2. **`@inertial/app`** — Electron + React + Tailwind reference dashboard for moderators, built on HITL Kit primitives vendored from its shadcn registry. (Which kits are *actually* dependencies versus design siblings is spelled out under [Sibling projects](#sibling-projects) — the short version is one of three.)
 
 ![Inertial dashboard — flag activity heatmap, queue mix, top of queue](docs/screenshots/dashboard.png)
 
@@ -362,6 +362,7 @@ Two tables. The first is what runs. The second is what doesn't and why it matter
 | **Backup / restore / migration rollback** for the production Postgres path. Drizzle migrations are committed; nothing automates restore. | Same gap. |
 | **End-to-end integration tests** that boot gateway + runciter + dashboard and run an event from POST → audit → review → audit-verify. Each layer is unit-tested in isolation; the seams are not. | A real bug will live between layers, not in any one layer. |
 | **A second registered skill per Tier 2.** Ollama integration is in flight but not implemented; nothing exercises Tier 2 today. | The "four-tier" architecture story is real at the schema level, partial at the code level. |
+| **Two of the three sibling kits are not importable.** `tag-kit` was never published to npm; `eval-kit`'s gate release exists only on its main branch. So `@inertial/eval` reimplements Brier / ECE and `@inertial/core` keeps its own `TAG_CATALOG`. | Duplicated substrate that was supposed to be shared, and two places for the same logic to drift. Only HITL Kit is a real integration, and only as vendored registry components under `components/hitl/`. |
 
 The skill catalog + registrations table + hot-toggle CRUD + audit chain + boot-time loader is **shaped for ~50 skills**. With ~7 actual skills it's correct-pattern, oversized-scope. That's a deliberate "ready to grow" stance, but if you're scanning for honest signals, this is one of them: the infra outsizes the live use case.
 
@@ -590,8 +591,11 @@ The script uses puppeteer-core against a system Chrome (override with `CHROME_PA
 
 ## Sibling projects
 
-- [`eval-kit`](https://github.com/akaieuan/eval-kit) — evaluation framework for collaborative-task agents. `inertial` uses `@eval-kit/ui` primitives in its eval cockpit and will use `@eval-kit/core` for calibration scoring.
-- [`HITL-KIT`](https://github.com/akaieuan/HITL-KIT) — human-in-the-loop UI primitives. `@inertial/app`'s queue and review screens are built on `MiniTrace`, `HitlCard`, `BatchQueue`, `AiGenerationScale`, and `ApproveRejectRow` from the [hitlkit.dev](https://hitlkit.dev) shadcn registry.
+Three of these are design siblings — the same thesis worked out in different substrates. Only one is a dependency. The distinction matters, so it's spelled out per project:
+
+- [`HITL-KIT`](https://github.com/akaieuan/HITL-KIT) — human-in-the-loop primitives. **The one real integration.** `@inertial/app`'s review screens use `MiniTrace`, `HitlCard`, `BatchQueue`, `AiGenerationScale`, and `ApproveRejectRow`, vendored from the [hitlkit.dev](https://hitlkit.dev) shadcn registry (copied in, per the registry's install model — not an npm dep). `@hitl-kit/gates` is published and installable; adopting it for the gate layer is Phase 1 of [the refactor plan](docs/plans/architecture-refactor.md), not yet done.
+- [`eval-kit`](https://github.com/akaieuan/eval-kit) — evaluation framework for collaborative-task agents. **Not imported.** `@inertial/eval` implements Brier / ECE / agreement itself. eval-kit's gate release exists only on its main branch and was never published, so this stays a documented seam rather than a dependency.
+- [`tag-kit`](https://github.com/akaieuan/tag-kit) — structured tagging primitives, extracted *out of* inertial's reviewer-tag layer. **Not imported back.** `TAG_CATALOG` still lives in `@inertial/core`; tag-kit was never published to npm. Extraction went one way.
 
 ---
 
