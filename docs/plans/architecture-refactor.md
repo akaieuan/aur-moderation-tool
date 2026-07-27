@@ -20,7 +20,7 @@ or API calls. `pnpm typecheck` / `pnpm build` are the verification ceiling.
 | `auto-remove` may execute unattended | ⚠️ **Partly** | It has a `suppress` flag ("held, emits queue.quick instead") and the schema doc already says an action is *a recommendation until a human approves*. But `auto-remove` appears **nowhere outside `policy.ts`** — nothing implements it. The bug is the **default** (`suppress: false`), not live behaviour. |
 | Routing witness discarded | ✅ **True** | `EvaluationResult = { action, matchedRuleId? }`. `matches()` returns a boolean; the matched subtree is dropped at `evaluator.ts:31`. |
 | `SkillCalibration` lacks a version | ✅ **True** | `skillName` only. Swapping a model merges two records. |
-| `TagScope` lacks `text-span` | ✅ **True** | Has modality / mediaAssetId / segment. The doc comment on line 8 already promises "span". |
+| `TagScope` lacks `text-span` | ❌ **False** *(corrected during Phase 5)* | `TagScopeSchema` already has `span: { start, end }` — character offsets into `ContentEvent.text`. I marked this "true" on a truncated read of the file and only caught it when implementing. The real gap is one layer up: `ReviewerTagPicker` never *constructs* a span ("no scope set", per its own comment), so the schema offers precision the UI doesn't. That's a UI feature, not a schema fix, and it is **not done**. |
 
 **Consequence for sequencing:** the handoff's Phase 1 (split a conflated enum) is really *add the
 missing half*. Its Phase 0 (delete kit claims) is really *correct one claim and qualify another*.
@@ -215,6 +215,6 @@ independently revertible.
 Per the handoff, and confirmed here: real Postgres persistence + the append-only audit chain (68
 hermetic integration tests), real classifiers (toxic-bert / Claude Vision / Voyage) and the four-tier
 execution model with per-skill `dataLeavesMachine`, `video-frame-extract` + `VideoAgent`, the
-33-schema contract layer, and the honest documentation — the "Not real" table, the 31-gold-event
+35-schema contract layer, and the honest documentation — the "Not real" table, the 31-gold-event
 caveat, and seed event #5 showing toxic-bert missing a threat at 0.50. That last one is the
 local-vs-cloud capability gap *demonstrated rather than asserted*. Keep it.

@@ -4,7 +4,7 @@
 
 > *An agent operating where being wrong has consequences should not be able to decide anything. It emits typed, evidence-bearing signals; declarative per-instance policy turns those into routing; a human commits the irreversible action; and all three land in an ordered, append-only record of who approved what and when.*
 
-What's real: schema-first Zod contracts across 33 typed shapes, a skill/tool registry with a catalog + per-instance registration table, a YAML policy evaluator with an append-only audit log and a `/verify` chain walk, an eval harness scoring per-(skill, channel) Brier/ECE/agreement, a reviewer-tag layer with per-modality / per-segment scope, and a reviewer dashboard wired to all of it.
+What's real: schema-first Zod contracts across 35 typed shapes, a skill/tool registry with a catalog + per-instance registration table, a YAML policy evaluator that emits both an action and the condition subtree that produced it, a two-gate taxonomy (operator's rule vs. system uncertainty) that the type system keeps apart, destructive actions that default to held-for-approval, an eval harness scoring per-(skill, channel) Brier/ECE/agreement, a reviewer-tag layer with per-modality / per-segment scope, and a reviewer dashboard wired to all of it.
 
 What's stubbed (deliberately): every source connector (Mastodon, Bluesky, Lemmy, Discord, Slack), the action dispatcher that pushes decisions back to source platforms, the `agents-audio` and `agents-identity` packages (each is a single class returning `[]`), gateway media download + perceptual hashing, and any auth / observability layer. The architecture diagram below documents the *target* shape; what runs today is a verification substrate with a reference UI on top.
 
@@ -16,7 +16,7 @@ This is portfolio work, not a maintained OSS project. The point is the architect
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](#)
 [![Status](https://img.shields.io/badge/status-pre--alpha-red.svg)](#)
 
-> **Status — reference architecture, not deployable.** Schemas, audit chain, eval harness, skill registry, and reviewer dashboard are real and tested. Connectors are stubbed. Action dispatch is unimplemented. No auth. The 31-event gold set is too small for statistical claims; it's there to demonstrate the calibration math, not to certify any skill's accuracy.
+> **Status — reference architecture, not deployable.** Schemas, audit chain, eval harness, skill registry, and reviewer dashboard are real and tested. Connectors are stubbed. Action dispatch is unimplemented. No auth. The 31-event gold set is too small for statistical claims; it's there to demonstrate the calibration math, not to certify any skill's accuracy. The gate taxonomy is *enforced* at routing time but not yet *scored* — `gateCompliance` and `gateJudgment` are always null on a real run. Screenshots below predate the current reviewer surface.
 
 `inertial` is two things in one monorepo:
 
@@ -43,6 +43,8 @@ If you only remember one rule: **inertials emit signals; the Runciter dispatches
 
 The dashboard is the reference implementation of the `inertial` HITL contract. Every flag flows through here; nothing the runciter does is hidden.
 
+> **The screenshots in this section are stale.** They were captured before the reviewer-surface pass and still show the old Chat/Notes rail, the pre-akaSTYLE palette, and channel chips without plain-language readings. Regenerating them needs the full three-process demo up (`scripts/capture-screenshots.mjs`). Treat them as an older build of the same app, not as current UI.
+
 ### Dashboard — flag activity at a glance
 
 The first thing the reviewer sees: a 52-week flag heatmap (GitHub-style, but red and pale enough to scan without being alarming), the day-by-day breakdown on hover, the operational stats below, and the next items waiting on a moderator on the right.
@@ -55,7 +57,11 @@ The Quick / Deep / Escalation queues live side by side. Each card is one pending
 
 ![Queue page with three deck columns](docs/screenshots/queue.png)
 
-The detail panel surfaces every signal the runciter generated: channel chips with per-channel evidence, **reviewer tags** with per-modality / per-segment scope (Add tag opens a popover catalog filtered to the event's modalities), a **video frames** strip when the event is video (thumbnails with timestamp overlays + top-channel score per keyframe), **author history** with verdict pills, and **similar events** (top-K cosine-similar past events via Voyage embeddings + pgvector).
+The detail panel surfaces every signal the runciter generated. Each channel carries a **plain-language reading** beside the number — `toxic · 0.98` is precise and still makes a reviewer decode a schema before deciding, so the chip says *"Reads as hostile or demeaning toward someone in the thread."* under the label. The numbers stay; they're what policy acts on.
+
+Below the channels that fired sits a **"never concluded"** block listing the notable ones that reported nothing — *"No image classifier ran. Attached media has not been looked at at all."* As a blank row, "never assessed" and "checked and clean" render identically, and they are not the same fact.
+
+Also in the panel: channel chips with per-channel evidence, **reviewer tags** with per-modality / per-segment scope (Add tag opens a popover catalog filtered to the event's modalities), a **video frames** strip when the event is video (thumbnails with timestamp overlays + top-channel score per keyframe), **author history** with verdict pills, and **similar events** (top-K cosine-similar past events via Voyage embeddings + pgvector).
 
 Approve / Remove / Escalate commits a `ReviewDecision` + every applied tag into the append-only audit log. Tags auto-promote into the gold set as `reviewer-derived` rows, so the eval corpus grows on every commit.
 
@@ -87,11 +93,11 @@ Per-skill Brier / ECE / agreement against the gold set, the reviewer-tag corpus 
 
 ![Insights page with calibration table + tag corpus + run history](docs/screenshots/insights.png)
 
-### Side panels — chat, notes, agent activity
+### Side panel — agent activity
 
-The right rail extends edge-to-edge from the top of the window. The Chat panel mirrors the Claude home pattern (greeting, overview card with a 15-week flag heatmap, suggestion chips, pill input with model + tools below). Notes is a per-case scratchpad; Agent activity shows the live inertial dispatch trace.
+The right rail extends edge-to-edge from the top of the window and carries one thing: the live inertial dispatch trace, per skill, with execution model and whether the data left the machine.
 
-![Dashboard with chat panel open](docs/screenshots/dashboard-chat-panel.png)
+It used to offer Chat and Notes alongside it. Both were the general-assistant metaphor bolted onto a review tool, and neither had anything to do with approval or audit — so they diluted the one panel that *is* the thesis. Three panels a reviewer has to choose between lose to one that's always the right answer.
 
 ---
 
@@ -154,9 +160,13 @@ The moderation queue is the demo surface. The gating is the thesis.
               └──────┬──────┘  + agentsRun + agentsFailed + latencyMs
                      ▼
               ┌──────────────────┐
-              │ @inertial/policy │  Per-instance YAML rules over signal.
-              │    evaluator     │  Emits PolicyAction (queue.quick / queue.deep
-              └──────┬───────────┘  / escalate / auto-allow / auto-remove).
+              │ @inertial/policy │  Per-instance YAML rules over signal. Emits a
+              │    evaluator     │  PolicyAction + a MatchWitness (the condition
+              └──────┬───────────┘  subtree that fired, with observed values).
+                     │              queue.quick · queue.deep · auto-allow
+                     │              escalate.mandatory   — operator's rule
+                     │              escalate.discretionary — system unsure
+                     │              auto-remove          — held for approval
                      │
         ┌────────────┴────────────┐
         ▼                         ▼
@@ -329,11 +339,11 @@ Two tables. The first is what runs. The second is what doesn't and why it matter
 
 | Component | Status |
 |---|---|
-| `@inertial/schemas` | Real. 33 Zod schemas: ContentEvent, StructuredSignal, AgentTrace, ReviewItem, ReviewDecision (+ `reviewerTags`), Policy, AuditEntry, SkillRegistration, GoldEvent, EvalRun, SkillCalibration, ReviewerTag + scope, TagAgreement, plus all the inner shapes (Probability, EvidencePointer, SignalChannel, ExtractedEntity, Modality, Source, MediaAsset, Author, InstanceContext, …). |
+| `@inertial/schemas` | Real. 35 Zod schemas: ContentEvent, StructuredSignal, AgentTrace, ReviewItem, ReviewDecision (+ `reviewerTags`), Policy, AuditEntry, SkillRegistration, GoldEvent, EvalRun, SkillCalibration, ReviewerTag + scope, TagAgreement, plus all the inner shapes (Probability, EvidencePointer, SignalChannel, ExtractedEntity, Modality, Source, MediaAsset, Author, InstanceContext, …). |
 | `@inertial/core` | Real. BaseAgent + TraceCollector + InMemoryRunciter, SkillRegistry + ToolRegistry, `SKILL_CATALOG`, `TAG_CATALOG` (~18 starter tags). |
 | `@inertial/db` | Real. 13 tables (incl. `skill_registrations`, `gold_events`, `eval_runs`, `skill_calibrations`, `reviewer_tags`, `event_embeddings`). **68 hermetic integration tests.** Append-only audit log with ordered entries and prevHash linkage. |
-| `@inertial/policy` | Real. YAML loader + structured AST evaluator. First-match wins; per-instance versioning. Confidence-based escalation working. |
-| `@inertial/eval` | Real. Brier / ECE / agreement + tag-PRF scoring, calibration aggregator, JSONL loader, reviewer-derived auto-promotion, persistence-agnostic runner. **30 unit tests.** |
+| `@inertial/policy` | Real. YAML loader + structured AST evaluator. First-match wins; per-instance versioning. Confidence-based escalation working. Returns a `MatchWitness` — the matched condition subtree with observed values — alongside the rule id. |
+| `@inertial/eval` | Real. Brier / ECE / agreement + tag-PRF scoring, calibration aggregator, JSONL loader, reviewer-derived auto-promotion, persistence-agnostic runner. Rows carry `skillVersion` so a model swap starts a new history, and events where an agent failed are excluded rather than scored as zero (counted in `skippedIncomplete`). **30 unit tests.** |
 | `apps/gateway` | Real. Hono ingest, normalizes payloads, forwards to runciter. |
 | `apps/runciter` | Real. Runciter runtime + 5 eval endpoints + 3 tag endpoints + boot-time gold-set loader + reviewer-derived gold auto-promotion on every commit decision. |
 | `apps/inertial-app` | Real. Electron + React + Tailwind v4. Live Insights tab (calibration table + Tag corpus + Eval runs history + Run-eval button), QueueDetailPanel with reviewer-tag picker. |
@@ -362,6 +372,11 @@ Two tables. The first is what runs. The second is what doesn't and why it matter
 | **Backup / restore / migration rollback** for the production Postgres path. Drizzle migrations are committed; nothing automates restore. | Same gap. |
 | **End-to-end integration tests** that boot gateway + runciter + dashboard and run an event from POST → audit → review → audit-verify. Each layer is unit-tested in isolation; the seams are not. | A real bug will live between layers, not in any one layer. |
 | **A second registered skill per Tier 2.** Ollama integration is in flight but not implemented; nothing exercises Tier 2 today. | The "four-tier" architecture story is real at the schema level, partial at the code level. |
+| **Gate scoring is modelled but not computed.** `EvalRun.gateCompliance` and `EvalRun.gateJudgment` exist as schemas and columns, and the runciter records the `gatePosition` they need — but no scorer reads it back yet, so both are always `null` on a real run. | The gate taxonomy is enforced at routing time and provable from the audit payload; the *measurement* of it isn't wired. The demo fixtures show what the numbers would look like, which means anything you see in the Insights tab today is fixture data, not a result. |
+| **`escalate.discretionary` has no producer.** The action kind, its uncertainty payload, and the routing to the escalation queue are all real, but no shipped policy rule or skill emits it — `config/policies/default.yaml` only routes to quick / deep. | Half the gate taxonomy is unexercised end-to-end. The type prevents the two gates being conflated; it doesn't yet prove the discretionary one fires when it should. |
+| **`auto-remove` has no executor.** It's a held proposal by default and nothing consumes it — no code path removes content anywhere. | The safety property is currently free, because there is nothing to hold back. It'll be load-bearing the day an action dispatcher exists, which is exactly why the default was set before one did. |
+| **Reviewers can't tag a text span from the UI.** `TagScope` supports `span: { start, end }`, and `ReviewerTagPicker` never constructs one — its own comment says "no scope set". | The schema promises precision the interface doesn't offer. Tags land at event scope, so the "this paragraph specifically" case is representable in the data and unreachable for the person doing the review. |
+| **Screenshots predate the reviewer-surface work.** The images below still show the Chat/Notes rail, the old neutral palette, and channel chips without plain-language readings. | Regenerating them needs the full three-process demo running (`scripts/capture-screenshots.mjs`). What you see in `docs/screenshots/` is an older build of the same app. |
 | **Two of the three sibling kits are not importable.** `tag-kit` was never published to npm; `eval-kit`'s gate release exists only on its main branch. So `@inertial/eval` reimplements Brier / ECE and `@inertial/core` keeps its own `TAG_CATALOG`. | Duplicated substrate that was supposed to be shared, and two places for the same logic to drift. Only HITL Kit is a real integration, and only as vendored registry components under `components/hitl/`. |
 
 The skill catalog + registrations table + hot-toggle CRUD + audit chain + boot-time loader is **shaped for ~50 skills**. With ~7 actual skills it's correct-pattern, oversized-scope. That's a deliberate "ready to grow" stance, but if you're scanning for honest signals, this is one of them: the infra outsizes the live use case.
@@ -534,7 +549,33 @@ default:
 
 Conditions form a tree: leaf (`channel + op + value` or `entity + present`), `all: [...]`, or `any: [...]`. Rules evaluate in declaration order; first match wins.
 
-It's an AST rather than an expression string on purpose. There is no path through `eval` or `Function`, so operator-authored policy can't execute arbitrary code; every condition serializes to JSON verbatim into the audit log alongside the rule id, so "why was this routed here" stays answerable months later; and extending the language means adding a Zod discriminant, not writing a parser.
+It's an AST rather than an expression string on purpose. There is no path through `eval` or `Function`, so operator-authored policy can't execute arbitrary code; extending the language means adding a Zod discriminant, not writing a parser; and the matched subtree survives evaluation as a **`MatchWitness`**, which lands in the audit payload beside the rule id:
+
+```json
+{ "kind": "any",
+  "matched": { "kind": "channel", "channel": "threat",
+               "field": "probability", "op": "gt",
+               "threshold": 0.7, "observed": 0.95 } }
+```
+
+That's the difference between an audit entry that names a rule you then have to go look up in whichever policy version was live, and one that says *threat was 0.95, the rule wanted > 0.7*. For `any:` only the branch that matched is recorded — keeping the others would claim evidence the evaluator never relied on.
+
+### Two gates, never averaged
+
+`escalate` is two different things wearing one word, and they must not share a metric:
+
+| | **`escalate.mandatory`** | **`escalate.discretionary`** |
+|---|---|---|
+| Means | The operator's rule says a human sees this | The system doesn't know |
+| Confidence an input? | **No** — deliberately. That's what makes it policy rather than judgment | Yes; it carries the `uncertainty` that caused the stop |
+| Fails how | One-sided: it happened or it didn't | Two-sided: stopping on everything offloads the job onto the reviewer, stopping on nothing is silent guessing |
+| Scored as | `gateCompliance` — binary, machine-checkable | `gateJudgment` — ask-precision and blocker-recall |
+
+Averaging a compliance rate with a judgment score produces a number that means nothing: one measures obedience to the operator, the other measures whether the system knows the edge of its own competence. `EvalRun` carries them as separate nullable fields, and `gateClassOf()` in `@inertial/schemas` is the single place an action is classified.
+
+**`auto-remove` is a proposal, not an action.** `heldForApproval` defaults to `true`; when held it emits `queue.quick` and waits on a recorded human approval. Setting it false lets an agent destroy content unattended — the flag exists so that choice is explicit and greppable, not so it's convenient. `auto-allow` is the only action that resolves autonomously, because leaving content up is reversible and removing someone's speech is not.
+
+**Gate ordering is recorded**, not inferred. The `queue-routed` audit payload carries `gateClass` and `gatePosition` — how many actions preceded the gate — because compliance is entirely a question of what came before what. Non-gate routes record `null` for both, and null is load-bearing: `0` would read as "approved before anything happened" and manufacture compliance nobody observed.
 
 ---
 
@@ -546,12 +587,13 @@ This is the order pillars landed during the build, not a commitment to keep buil
 
 | Pillar | What landed | Why it matters |
 |---|---|---|
-| **Foundations** | `@inertial/schemas` (33 typed shapes), `@inertial/core` (Runciter, BaseAgent, max-confidence aggregator), gateway + runciter shells, end-to-end smoke | Every cross-package shape is a typed Zod schema. The runciter dispatches inertials; humans decide. |
+| **Foundations** | `@inertial/schemas` (35 typed shapes), `@inertial/core` (Runciter, BaseAgent, max-confidence aggregator), gateway + runciter shells, end-to-end smoke | Every cross-package shape is a typed Zod schema. The runciter dispatches inertials; humans decide. |
 | **Persistence + audit** | `@inertial/db` (Drizzle + Postgres + pgvector), 13 tables, **append-only audit log with ordered entries**, pglite dev factory, 68 hermetic integration tests | "No remote API touched my instance over the last 30 days" becomes a query against a recorded log, not a promise. |
 | **Live moderation pipeline** | Real `text-toxicity-local` (`Xenova/toxic-bert` via transformers.js, ~50ms/event after warmup), `@inertial/policy` YAML evaluator, DB-persisted pipeline, dashboard reading live data, decision commit flow | Seed 13 events → see them route to queues → approve/remove from the dashboard → audit log grows. |
 | **Vision + split-pane review** | Claude Vision moderation (`image-classify@anthropic`), split-pane queue → detail layout, evidence rendering with bbox overlays | Image flags get the same audit + reviewer treatment as text. |
 | **Shadow runs + compliance** | Skills can run as `shadow:` peers; their decisions are recorded silently. Compliance tab surfaces per-skill agreement vs. the human reviewer. | Free continuous gold-set generation. Calibration data flows back into the eval harness. |
-| **Reviewer experience** | Dashboard FlagMap heatmap with hover stats, three-deck queue layout with inline review session, Pipelines visual canvas, Skills create sheet, Insights rebuilt on internal primitives, side panels (Chat / Notes / Agent activity) docked edge-to-edge | The dashboard reads as one app instead of seven loosely related views. See [`docs/screenshots/`](docs/screenshots/). |
+| **Reviewer experience** | Dashboard FlagMap heatmap with hover stats, three-deck queue layout with inline review session, Pipelines visual canvas, Skills create sheet, Insights rebuilt on internal primitives, agent-activity rail docked edge-to-edge | The dashboard reads as one app instead of seven loosely related views. See [`docs/screenshots/`](docs/screenshots/). |
+| **Gate taxonomy + plain-language readings** | `escalate.discretionary` beside `escalate.mandatory`, `auto-remove` held for approval by default, routing witness + gate ordering in the audit payload, crash-aware calibration with per-skill versions, channel readings + a "never concluded" surface, akaSTYLE tokens | Compliance and judgment stop being one averaged number; destruction stops being something an agent can do alone; and a channel that reported nothing stops looking like a channel that came back clean. |
 | **Skills + tools layer** | Skill / tool registries in `@inertial/core`, `SKILL_CATALOG` of installable modules, `skill_registrations` persistence, dashboard catalog picker + per-instance hot toggle, factory-shaped cloud skills, `db.author.list-history` + `db.events.find-similar` + `db.embeddings.get` tools | Adding a skill becomes a registration row, not a code change. The reviewer can wire Voyage / Anthropic / etc. without touching YAML. |
 | **Context engine** | `ContextAgent` composing `text-context-author@local` + `text-context-similar@local`. Voyage embeddings populate `event_embeddings` inline on every text-bearing event. Author history + similar events surface in the queue detail panel. | "Has this user done this before? Has anything like this happened before?" answered for every queued item. |
 | **Eval harness + reviewer-tagged corpus** | `@inertial/eval` (Brier / ECE / agreement scoring), `gold_events` + `eval_runs` + `skill_calibrations` tables, JSONL gold-set v1 (30 hand-labeled cases), `pnpm eval` CLI with summary table, runciter `/v1/eval/runs` endpoints, Insights tab live, **reviewer-tag layer** (`TAG_CATALOG`, `reviewer_tags` table, per-modality / per-segment scoping, in-line tag picker on every queued item) | Calibration becomes a recorded artifact, not vibes. Every reviewer commit grows the gold set automatically (auto-promotion). The "good video bad audio" mixed-validity case gets a precise label, not a whole-asset verdict. |
